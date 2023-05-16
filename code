@@ -1,0 +1,467 @@
+
+#ifdef _MSC_VER
+#define _CRT_SECURE_NO_WARNINGS
+#endif
+#include <GLUT/glut.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+#include <string.h>
+#include <stdarg.h>
+#include "vec.h"
+
+
+#define WINDOW_WIDTH  1000
+#define WINDOW_HEIGHT 800
+
+#define TIMER_PERIOD  16 // Period for the timer.
+#define TIMER_ON         1 // 0:disable timer, 1:enable timer
+
+#define FOV 30 //angle for the triangle
+#define ARROW_SPEED 6
+#define D2R 0.0174532
+
+/* Global Variables for Template File */
+bool up = false, down = false, right = false, left = false;
+int  winWidth, winHeight; // current Window width and height
+
+typedef struct{
+    vec_t position;
+    int r,g,b;
+    float angle;
+}target;
+
+typedef struct arrow_s{
+    vec_t position;
+    int angle;
+    vec_t vel;
+    bool active;
+}arrow;
+
+float A = 100; //amplitude
+float angle = 0; //angle for the circular object
+
+target t ;
+arrow ar ;
+int score=-1; // counts the arrow that hit the object
+double time=0; // gives amount of time to finish the game
+//
+// to draw circle, center at (x,y)
+// radius r
+//
+void circle( int x, int y, int r )
+{
+#define PI 3.1415
+   float angle ;
+   glBegin( GL_POLYGON ) ;
+   for ( int i = 0 ; i < 100 ; i++ )
+   {
+      angle = 2*PI*i/100;
+      glVertex2f( x+r*cos(angle), y+r*sin(angle)) ;
+   }
+   glEnd();
+}
+
+void circle_wire(int x, int y, int r)
+{
+#define PI 3.1415
+   float angle;
+
+   glBegin(GL_LINE_LOOP);
+   for (int i = 0; i < 100; i++)
+   {
+      angle = 2 * PI*i / 100;
+      glVertex2f(x + r*cos(angle), y + r*sin(angle));
+   }
+   glEnd();
+}
+
+void print(int x, int y, const char *string, void *font )
+{
+   int len, i ;
+
+   glRasterPos2f( x, y );
+   len = (int) strlen( string );
+   for ( i =0; i<len; i++ )
+   {
+      glutBitmapCharacter( font, string[i]);
+   }
+}
+
+// display text with variables.
+// vprint(-winWidth / 2 + 10, winHeight / 2 - 20, GLUT_BITMAP_8_BY_13, "ERROR: %d", numClicks);
+void vprint(int x, int y, void *font, const char *string , ...)
+{
+   va_list ap;
+   va_start ( ap, string );
+   char str[1024] ;
+   vsprintf( str, string, ap ) ;
+   va_end(ap) ;
+   
+   int len, i ;
+   glRasterPos2f( x, y );
+   len = (int) strlen( str );
+   for ( i =0; i<len; i++ )
+   {
+      glutBitmapCharacter( font, str[i]);
+   }
+}
+
+// vprint2(-50, 0, 0.35, "00:%02d", timeCounter);
+void vprint2(int x, int y, float size, const char *string, ...) {
+   va_list ap;
+   va_start(ap, string);
+   char str[1024];
+   vsprintf(str, string, ap);
+   va_end(ap);
+   glPushMatrix();
+      glTranslatef(x, y, 0);
+      glScalef(size, size, 1);
+      
+      int len, i;
+      len = (int)strlen(str);
+      for (i = 0; i<len; i++)
+      {
+         glutStrokeCharacter(GLUT_STROKE_ROMAN, str[i]);
+      }
+   glPopMatrix();
+}
+
+
+void drawObject(){
+    
+    float radius = fabs(A); //radius of the circular motion
+    t.position.x = radius*cos(angle * D2R) ;
+    t.position.y = radius*sin(angle*D2R) ;
+    
+    glColor3f(1, 1, 1);
+    circle_wire(0, 0, radius);
+    glColor4f(1, 1, 0, 0.5);
+    circle(t.position.x, t.position.y, 40);
+    glColor4f(1, 1, 0, 0.8);
+    circle(t.position.x, t.position.y, 20);
+    
+    
+    vec_t corner1 = addV(t.position, pol2rec({2000, t.angle - FOV })); //corner 1 for the triangle
+    vec_t corner2 = addV(t.position, pol2rec({2000, t.angle + FOV})); // corner 2 for the triangle
+    
+    // FOV Area
+    glColor4f(1, 1, 0, 0.2);
+    glBegin(GL_TRIANGLES);
+    glVertex2f(t.position.x, t.position.y);
+    glVertex2f(corner1.x, corner1.y);
+    glVertex2f(corner2.x, corner2.y);
+    glEnd();
+
+}
+
+void coordination(vec_t t, vec_t ar, float ang){ // gives direction according to the circular object's angle
+    float xpos = (t.x * sin(ang) - t.y * cos(ang)) + ar.x;
+    float ypos = (t.x * cos(ang) + t.y * sin(ang)) + ar.y;
+    glVertex2f(xpos, ypos);
+}
+
+void drawArrow(arrow ar){
+    float c = 0.5 * sin(0.5 * angle * D2R) + 0.5; //between 0 and 1
+       glColor3f(1-c, c/c, c*c);
+    
+    float ang = atan2(ar.vel.x, ar.vel.y) + 50 * D2R;
+    //    drawing the arrow's body with the angle's direction
+    glLineWidth(3);
+     glBegin(GL_LINES);
+     coordination({-10,-10}, ar.position, ang);
+     coordination({6,6}, ar.position, ang);
+     
+     coordination({5,5}, ar.position, ang);
+     coordination({-5,5}, ar.position, ang);
+     
+     coordination({5,5}, ar.position, ang);
+     coordination({5,-5}, ar.position, ang);
+     glEnd();
+     glLineWidth(1);
+    
+    
+    glLineWidth(1);
+    
+    
+}
+
+void drawFunction() { // give info on how to change the amplitude and time and score shows on the screen for more info
+   glColor3f(1, 1, 0);
+   vprint(-100, -390, GLUT_BITMAP_8_BY_13,"Amplitude: %.0f", fabs(A));
+   vprint(-490, -390, GLUT_BITMAP_8_BY_13,"Press [F1/F2:Amplitude] to change Amplitude");
+    vprint(100, -390, GLUT_BITMAP_8_BY_13, "Score: %d", score);
+    vprint(200, -390, GLUT_BITMAP_8_BY_13, "Time: %.0f", time);
+}
+
+
+void displayMessage(){ // it will be displayed after the allocated time has been reached
+    glColor3f(0, 0, 0);
+    glRectf(-500, -400, 500, 400);
+    glColor3f(1, 1, 1);
+    vprint(-300, 0, GLUT_BITMAP_TIMES_ROMAN_24, "YOU'VE REACHED THE ALLOCATED TIME PERIOD");
+    vprint(-120, -50, GLUT_BITMAP_HELVETICA_18, "To play, please buy the game!");
+}
+void background(){
+    glColor4f(0, 1, 0, 0.1);
+    glRectf(-500, -400, 500, 400);
+}
+//
+// To display onto window using OpenGL commands
+//
+void display() {
+   //
+   // clear window to black
+   //
+   glClearColor(0, 0, 0, 0);
+   glClear(GL_COLOR_BUFFER_BIT);
+    background();
+    glColor3f(1, 1, 1);
+    vprint(-490, 370, GLUT_BITMAP_TIMES_ROMAN_24, "Name: Mustafa Asrin Degirmenci");
+    vprint(-490, 340, GLUT_BITMAP_TIMES_ROMAN_24, "HOMEWORK#3 - Chase/Flee object(Trial Game)");
+    drawFunction();
+    drawObject();
+    drawArrow(ar);
+    if (time > 30) { // after 30 seconds, messages will be displayed
+        displayMessage();
+    }
+   glutSwapBuffers();
+}
+
+//
+// key function for ASCII charachters like ESC, a,b,c..,A,B,..Z
+//
+void onKeyDown(unsigned char key, int x, int y )
+{
+   // exit when ESC is pressed.
+   if ( key == 27 )
+      exit(0);
+    
+   // to refresh the window it calls display() function
+   glutPostRedisplay() ;
+}
+
+void onKeyUp(unsigned char key, int x, int y )
+{
+   // exit when ESC is pressed.
+   if ( key == 27 )
+      exit(0);
+    
+   // to refresh the window it calls display() function
+   glutPostRedisplay() ;
+}
+
+//
+// Special Key like GLUT_KEY_F1, F2, F3,...
+// Arrow Keys, GLUT_KEY_UP, GLUT_KEY_DOWN, GLUT_KEY_RIGHT, GLUT_KEY_RIGHT
+//
+void onSpecialKeyDown( int key, int x, int y )
+{
+   // Write your codes here.
+   switch (key) {
+   case GLUT_KEY_UP: up = true; break;
+   case GLUT_KEY_DOWN: down = true; break;
+   case GLUT_KEY_LEFT: left = true; break;
+   case GLUT_KEY_RIGHT: right = true; break;
+           
+       case GLUT_KEY_F1:
+           A += 10;
+           if(fabs(A)>=360)
+               A = 10; break; // this will stop expanding the radius of the circular object
+   case GLUT_KEY_F2:
+           A -= 10;
+           if(fabs(A)>=360)
+           A = 10; break;
+   }
+
+   // to refresh the window it calls display() function
+   glutPostRedisplay() ;
+}
+
+//
+// Special Key like GLUT_KEY_F1, F2, F3,...
+// Arrow Keys, GLUT_KEY_UP, GLUT_KEY_DOWN, GLUT_KEY_RIGHT, GLUT_KEY_RIGHT
+//
+void onSpecialKeyUp( int key, int x, int y )
+{
+   // Write your codes here.
+   switch (key) {
+   case GLUT_KEY_UP: up = false; break;
+   case GLUT_KEY_DOWN: down = false; break;
+   case GLUT_KEY_LEFT: left = false; break;
+   case GLUT_KEY_RIGHT: right = false; break;
+   }
+
+   // to refresh the window it calls display() function
+   glutPostRedisplay() ;
+}
+
+//
+// When a click occurs in the window,
+// It provides which button
+// buttons : GLUT_LEFT_BUTTON , GLUT_RIGHT_BUTTON
+// states  : GLUT_UP , GLUT_DOWN
+// x, y is the coordinate of the point that mouse clicked.
+//
+void onClick( int button, int stat, int x, int y )
+{
+   // Write your codes here.
+    if (button == GLUT_LEFT_BUTTON && stat == GLUT_DOWN) {
+        x = x - winWidth / 2;
+        y = winHeight / 2 - y;
+        ar.position.x = x;
+        ar.position.y = y;
+        drawArrow(ar);
+    }
+   
+   // to refresh the window it calls display() function
+   glutPostRedisplay() ;
+}
+
+//
+// This function is called when the window size changes.
+// w : is the new width of the window in pixels.
+// h : is the new height of the window in pixels.
+//
+void onResize( int w, int h )
+{
+   winWidth = w;
+   winHeight = h;
+   glViewport( 0, 0, w, h ) ;
+   glMatrixMode( GL_PROJECTION );
+   glLoadIdentity();
+   glOrtho( -w/2, w/2, -h/2, h/2, -1, 1);
+   glMatrixMode( GL_MODELVIEW);
+   glLoadIdentity();
+   display(); // refresh window.
+}
+
+void onMoveDown( int x, int y ) {
+   // Write your codes here.
+
+
+   
+   // to refresh the window it calls display() function
+   glutPostRedisplay() ;
+}
+
+// GLUT to OpenGL coordinate conversion:
+//   x2 = x1 - winWidth / 2
+//   y2 = winHeight / 2 - y1
+void onMove( int x, int y ) {
+   // Write your codes here.
+
+
+   
+   // to refresh the window it calls display() function
+   glutPostRedisplay() ;
+}
+bool testImpact(target t, arrow ar) { // checks if the object has been hit, returns true otherwise false
+    float dx = t.position.x - ar.position.x;
+    float dy = t.position.y - ar.position.y;
+    float d = sqrt(dx*dx + dy * dy);
+    if (d <= A)
+        return true;
+    else
+        return false;
+}
+
+
+#if TIMER_ON == 1
+void onTimer( int v ) {
+    
+   glutTimerFunc( TIMER_PERIOD, onTimer, 0 ) ;
+   // Write your codes here.
+    angle += 1;
+    if (angle > 360) { // circular object spins circularly by this loop
+        angle -= 360;
+    }
+    
+    
+    t.angle +=3; // spins the visibility area
+    
+    time += 0.03; // time is implemented here
+    
+    vec_t H = pol2rec({ 1, t.angle });
+    vec_t K = unitV(  subV(ar.position, t.position) );
+    ar.active = dotP(H, K) > cos( FOV * D2R);  // if active, true otherwise false
+    
+    float radius = fabs(A); //radius of the circular motion
+    t.position.x = radius*cos(angle * D2R) ;
+    t.position.y = radius*sin(angle*D2R) ;
+    
+       // velocity vector from Enemy to Player
+       ar.vel = mulV( ARROW_SPEED, unitV(subV(t.position, ar.position)));
+    
+       if (ar.active == true) {
+           ar.position = subV(ar.position, ar.vel);  // if true, chase action will take place
+       }
+       else {
+           ar.position = addV(ar.position, ar.vel); // if false, flee action will take place
+       }
+    
+        vec_t curPos = ar.position;
+    
+//    checks the limitation of the screen, it will stop if it reaches the corners of the screen
+       if (ar.position.x > 980 || ar.position.x < -980 || ar.position.y > 780 || ar.position.y < -780) {
+           ar.position = curPos;
+       }
+    
+    if (testImpact(t,ar)) { // if true, arrow will be destroyed, and score will be incremented by 1.
+        if (t.position.x < ar.position.x + 10 && t.position.y < ar.position.y && t.position.y > ar.position.y - 5) {
+            ar.position = mulV(1000, ar.position);
+            score++;
+        }
+        
+    }
+    
+   
+   // to refresh the window it calls display() function
+   glutPostRedisplay() ; // display()
+
+}
+#endif
+
+void Init() {
+   
+   // Smoothing shapes
+   glEnable(GL_BLEND);
+   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+   
+}
+
+int main( int argc, char *argv[] ) {
+   glutInit(&argc, argv );
+   glutInitDisplayMode( GLUT_RGB | GLUT_DOUBLE );
+   glutInitWindowSize(WINDOW_WIDTH, WINDOW_HEIGHT);
+   //glutInitWindowPosition(100, 100);
+   glutCreateWindow("Mustafa Asrın Değirmenci");
+
+   glutDisplayFunc(display);
+   glutReshapeFunc(onResize);
+
+   //
+   // keyboard registration
+   //
+   glutKeyboardFunc(onKeyDown);
+   glutSpecialFunc(onSpecialKeyDown);
+
+   glutKeyboardUpFunc(onKeyUp);
+   glutSpecialUpFunc(onSpecialKeyUp);
+
+   //
+   // mouse registration
+   //
+   glutMouseFunc(onClick);
+   glutMotionFunc(onMoveDown);
+   glutPassiveMotionFunc(onMove);
+   
+   #if  TIMER_ON == 1
+   // timer event
+   glutTimerFunc( TIMER_PERIOD, onTimer, 0 ) ;
+   #endif
+
+   Init();
+   
+   glutMainLoop();
+}
